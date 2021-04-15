@@ -12,9 +12,38 @@
 #include <sys/time.h>
 #include <errno.h>
 
+/**
+ * Getting input (max pckt size, addreses and max wating time)
+ * connect to server do pinging
+ * get information and print
+ * 
+ */
+
 #define MAX_ADDRESSES_LEN 512
 #define MAX_NUMBER_OF_ADDRESSES 10
 #define MAX_ADDRESS_LEN 30
+
+//packet struct specialized for ping
+struct ping_pkt
+{
+    struct icmphdr hdr;
+    char msg[PING_PKT_S-sizeof(struct icmphdr)];
+};
+
+// Calculating the CheckSum
+unsigned short checksum(void *b, int len){
+    unsigned short *buf = b;
+    unsigned int sum=0;
+    unsigned short result;  
+    for ( sum = 0; len > 1; len -= 2 )
+        sum += *buf++;
+    if ( len == 1 )
+        sum += *(unsigned char*)buf;
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    result = ~sum;
+    return result;
+}
 
 int main(){
     
