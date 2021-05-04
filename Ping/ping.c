@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <time.h>
+#include <pthread.h>
 
 /**
  * Getting input (max pckt size, addreses and max wating time)
@@ -32,6 +33,17 @@
 
 int pingloop = 1;
 
+//struct for send_ping function parameters to do parallel pinging:
+struct send_ping_parameters
+{
+    int sockfd;
+    int max_waiting_time;
+    int packet_size;
+    struct sockaddr_in *addr_con;
+    char *ip_addr;
+    char temp_address[30];
+};
+
 //packet struct specialized for ping
 struct ping_pkt
 {
@@ -39,7 +51,7 @@ struct ping_pkt
     char msg[PING_PKT_SIZE-sizeof(struct icmphdr)];
 };
 
-// Interrupt handler
+//Interrupt handler
 void intHandler(int dummy)
 {
     pingloop=0;
@@ -83,10 +95,18 @@ char *dns_lookup(char *addr_host, struct sockaddr_in *addr_con)
     return ip;
 }
 
-void send_ping(int ping_sockfd, int max_waiting_time, int packet_size, struct sockaddr_in *ping_addr,char *ping_ip, char *rev_host){
+void *send_ping(void *parameters){
     int ttl_val=64, msg_count=0, i, addr_len, flag=1,
                msg_received_count=0;
     
+    struct send_ping_parameters args = *(struct send_ping_parameters*)parameters;
+    int packet_size = args.packet_size;
+    int max_waiting_time = args.max_waiting_time;
+    int ping_sockfd = args.sockfd;
+    struct sockaddr_in *ping_addr = args.addr_con;
+    char *ping_ip = args.ip_addr;
+    char *rev_host = args.temp_address;
+
     struct ping_pkt pckt;
     struct sockaddr_in r_addr;
     struct timespec time_start, time_end, tfs, tfe;
@@ -95,7 +115,6 @@ void send_ping(int ping_sockfd, int max_waiting_time, int packet_size, struct so
     tv_out.tv_sec = max_waiting_time;
     tv_out.tv_usec = 0;
 
-    
     clock_gettime(CLOCK_MONOTONIC, &tfs);
   
       
@@ -104,7 +123,7 @@ void send_ping(int ping_sockfd, int max_waiting_time, int packet_size, struct so
     if (setsockopt(ping_sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
     {
         printf("\nSetting socket options to TTL failed!\n");
-        return;
+        exit(EXIT_FAILURE);
     }
   
     else
@@ -121,9 +140,6 @@ void send_ping(int ping_sockfd, int max_waiting_time, int packet_size, struct so
     {
         //flag is whether packet was sent or not
         flag=1;
-       
-        //filling packet
-        bzero(&pckt, sizeof(pckt));
           
         pckt.hdr.type = ICMP_ECHO;
         pckt.hdr.un.echo.id = getpid();
@@ -134,7 +150,6 @@ void send_ping(int ping_sockfd, int max_waiting_time, int packet_size, struct so
         pckt.msg[i] = 0;
         pckt.hdr.un.echo.sequence = msg_count++;
         pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
-  
   
         usleep(PING_SLEEP_RATE);
   
@@ -239,6 +254,9 @@ int main(){
         i++;
     }
 
+    pthread_t tids[address_index];
+    struct send_ping_parameters parameters[address_index];
+
     for(int j = 0; j < address_index ; j++){
         char temp_address[30];
         int k;
@@ -247,6 +265,8 @@ int main(){
         }
         temp_address[k] = '\0';
         ip_addr = dns_lookup(temp_address, addr_con);
+        
+        printf("hi this is me: %s", temp_address);
 
         if(ip_addr==NULL)
         {
@@ -264,19 +284,26 @@ int main(){
             return 0;
         }else
             printf("\nSocket file descriptor %d was successfully received\n", sockfd);
-    
+
         //catching interrupt
         signal(SIGINT, intHandler);    
 
-        //send pings continuously
-        send_ping(sockfd, max_waiting_time, packet_size, addr_con, ip_addr, temp_address);
+        //send pings continuously and threaded
+        parameters[j].addr_con = addr_con;
+        parameters[j].ip_addr = ip_addr;
+        parameters[j].max_waiting_time = max_waiting_time;
+        parameters[j].packet_size = packet_size;
+        parameters[j].sockfd = sockfd;
+        for(int addr_index = 0; addr_index < 30 ; addr_index++){
+            parameters[j].temp_address[addr_index] = temp_address[addr_index];
+        }
+        
+        pthread_create(&tids[j], NULL, (void *)send_ping, (void *)&parameters[j]);
     }  
+
+    for(int join_counter = 0; join_counter < address_index; join_counter++){
+        pthread_join(tids[join_counter], NULL);
+    }
+
     return 0;
 }
-
-
-
-    
-
-
-
