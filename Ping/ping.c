@@ -115,7 +115,15 @@ void *send_ping(void *parameters){
     struct timeval tv_out;
     tv_out.tv_sec = max_waiting_time;
     tv_out.tv_usec = 0;
-
+    unsigned char *packet = malloc(packet_size);
+    struct icmphdr hdr;
+    unsigned char *msg = malloc(packet_size-sizeof(struct icmphdr));
+    unsigned char *hdr_bytes = malloc(sizeof(struct icmphdr));
+    hdr_bytes = (unsigned char *)&hdr;
+    for(int u=0;u<sizeof(struct icmphdr);u++){
+        packet[u] = ((unsigned char *)&hdr)[u];
+    }
+    
     
     clock_gettime(CLOCK_MONOTONIC, &tfs);
   
@@ -134,8 +142,7 @@ void *send_ping(void *parameters){
     }
 
     // setting timeout of recv setting
-    setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO,
-                   (const char*)&tv_out, sizeof tv_out);
+    setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO,(const char*)&tv_out, sizeof tv_out);
   
     //send icmp packet in an infinite loop
     while(pingloop)
@@ -143,25 +150,28 @@ void *send_ping(void *parameters){
         //flag is whether packet was sent or not
         flag=1;
        
-        //filling packet
-        bzero(&pckt, sizeof(pckt));
+        // //filling packet
+        // bzero(&pckt, sizeof(pckt));
           
-        pckt.hdr.type = ICMP_ECHO;
-        pckt.hdr.un.echo.id = getpid();
+        hdr.type = ICMP_ECHO;
+        hdr.un.echo.id = getpid();
           
-        for ( i = 0; i < sizeof(pckt.msg)-1; i++ )
-            pckt.msg[i] = i+'0';
+        for ( i = 0; i < sizeof(msg)-1; i++ )
+            msg[i] = i+'0';
           
-        pckt.msg[i] = 0;
-        pckt.hdr.un.echo.sequence = msg_count++;
-        pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
-  
+        msg[i] = 0;
+        hdr.un.echo.sequence = msg_count++;
+        hdr.checksum = checksum(&packet, packet_size);
+
+        for(int y=sizeof(struct icmphdr);y<packet_size;y++){
+            packet[y] = msg[y-sizeof(struct icmphdr)];
+        }
   
         usleep(PING_SLEEP_RATE);
   
         //send packet
         clock_gettime(CLOCK_MONOTONIC, &time_start);
-        if ( sendto(ping_sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr*) ping_addr, sizeof(*ping_addr)) <= 0)
+        if ( sendto(ping_sockfd, &packet, packet_size, 0, (struct sockaddr*) ping_addr, sizeof(*ping_addr)) <= 0)
         {
             printf("\nPacket Sending Failed!\n");
             flag=0;
@@ -169,19 +179,17 @@ void *send_ping(void *parameters){
   
         //receive packet
         addr_len=sizeof(r_addr);
-  
-        if (recvfrom(ping_sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr*)&r_addr, &addr_len) <= 0 && msg_count>1) 
+        
+        if (recvfrom(ping_sockfd, &pckt, packet_size, 0, (struct sockaddr*)&r_addr, &addr_len) <= 0 && msg_count>1) 
         {
             printf("\nPacket receive failed!\n");
-        }
-  
-        else
+        }else
         {
             clock_gettime(CLOCK_MONOTONIC, &time_end);
               
             double timeElapsed = ((double)(time_end.tv_nsec - time_start.tv_nsec))/1000000.0;
             rtt_msec = (time_end.tv_sec-time_start.tv_sec) * 1000.0 + timeElapsed;
-              
+
             //if packet was not sent, don't receive.
             if(flag)
             {
@@ -191,7 +199,7 @@ void *send_ping(void *parameters){
                 }
                 else
                 {
-                    printf("%d bytes from %s (%s) msg_seq=%d ttl=%d rtt = %Lf ms.\n", PING_PKT_SIZE, rev_host, ping_ip, msg_count,ttl_val, rtt_msec);
+                    printf("%d bytes from %s (%s) msg_seq=%d ttl=%d rtt = %Lf ms.\n", packet_size, rev_host, ping_ip, msg_count, ttl_val, rtt_msec);
   
                     msg_received_count++;
                 }
