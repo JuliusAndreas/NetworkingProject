@@ -44,6 +44,8 @@ struct send_ping_parameters
     char temp_address[30];
 };
 
+
+
 //packet struct specialized for ping
 struct ping_pkt
 {
@@ -51,7 +53,7 @@ struct ping_pkt
     char msg[PING_PKT_SIZE-sizeof(struct icmphdr)];
 };
 
-//Interrupt handler
+// Interrupt handler
 void intHandler(int dummy)
 {
     pingloop=0;
@@ -96,9 +98,8 @@ char *dns_lookup(char *addr_host, struct sockaddr_in *addr_con)
 }
 
 void *send_ping(void *parameters){
-    int ttl_val=64, msg_count=0, i, addr_len, flag=1,
-               msg_received_count=0;
     
+    int ttl_val=64, msg_count=0, i, addr_len, flag=1, msg_received_count=0;
     struct send_ping_parameters args = *(struct send_ping_parameters*)parameters;
     int packet_size = args.packet_size;
     int max_waiting_time = args.max_waiting_time;
@@ -115,6 +116,7 @@ void *send_ping(void *parameters){
     tv_out.tv_sec = max_waiting_time;
     tv_out.tv_usec = 0;
 
+    
     clock_gettime(CLOCK_MONOTONIC, &tfs);
   
       
@@ -140,6 +142,9 @@ void *send_ping(void *parameters){
     {
         //flag is whether packet was sent or not
         flag=1;
+       
+        //filling packet
+        bzero(&pckt, sizeof(pckt));
           
         pckt.hdr.type = ICMP_ECHO;
         pckt.hdr.un.echo.id = getpid();
@@ -150,6 +155,7 @@ void *send_ping(void *parameters){
         pckt.msg[i] = 0;
         pckt.hdr.un.echo.sequence = msg_count++;
         pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
+  
   
         usleep(PING_SLEEP_RATE);
   
@@ -265,8 +271,6 @@ int main(){
         }
         temp_address[k] = '\0';
         ip_addr = dns_lookup(temp_address, addr_con);
-        
-        printf("hi this is me: %s", temp_address);
 
         if(ip_addr==NULL)
         {
@@ -284,11 +288,11 @@ int main(){
             return 0;
         }else
             printf("\nSocket file descriptor %d was successfully received\n", sockfd);
-
+    
         //catching interrupt
         signal(SIGINT, intHandler);    
 
-        //send pings continuously and threaded
+        //send pings continuously
         parameters[j].addr_con = addr_con;
         parameters[j].ip_addr = ip_addr;
         parameters[j].max_waiting_time = max_waiting_time;
@@ -297,9 +301,8 @@ int main(){
         for(int addr_index = 0; addr_index < 30 ; addr_index++){
             parameters[j].temp_address[addr_index] = temp_address[addr_index];
         }
-        
         pthread_create(&tids[j], NULL, (void *)send_ping, (void *)&parameters[j]);
-    }  
+    }
 
     for(int join_counter = 0; join_counter < address_index; join_counter++){
         pthread_join(tids[join_counter], NULL);
@@ -307,3 +310,10 @@ int main(){
 
     return 0;
 }
+
+
+
+    
+
+
+
